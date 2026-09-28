@@ -1,4 +1,4 @@
-# agentic-trading-platform
+# agentic-trading-platform POC using IBM's Secure Carbonite Backbone. It takes one orchestrator agent managing subagents to pull live Global and US Market Data, Gold and Silver, and Crypto Currency prices. 
 
 This is a [Next.js](https://nextjs.org) project bootstrapped with [v0](https://v0.app).
 
