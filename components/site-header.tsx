@@ -17,12 +17,12 @@ export function SiteHeader() {
   const isDark = theme === 'g100'
 
   return (
-    <Header aria-label="Agentic Trading Desk">
+    <Header aria-label="StealthCarbonSystems">
       <SkipToContent />
       <HeaderName href="/" prefix="">
-        Agentic Trading Desk
+        StealthCarbonSystems
       </HeaderName>
-      <HeaderNavigation aria-label="Agentic Trading Desk">
+      <HeaderNavigation aria-label="StealthCarbonSystems">
         <HeaderMenuItem href="#main-content">Overview</HeaderMenuItem>
       </HeaderNavigation>
       <HeaderGlobalBar>

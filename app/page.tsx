@@ -9,7 +9,7 @@ export default function Page() {
       <div className="hero">
         <Grid>
           <Column sm={4} md={8} lg={12}>
-            <div className="desk-hero__eyebrow">Agentic Trading Desk</div>
+            <div className="desk-hero__eyebrow">StealthCarbonSystems</div>
             <h1 className="hero__title">Multi-agent market intelligence</h1>
             <p className="hero__subtitle">
               One orchestrator agent coordinates four specialist subagents across US

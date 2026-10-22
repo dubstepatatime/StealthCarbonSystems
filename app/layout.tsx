@@ -5,7 +5,7 @@ import { SiteHeader } from '@/components/site-header'
 import './globals.scss'
 
 export const metadata: Metadata = {
-  title: 'Agentic Trading Desk',
+  title: 'StealthCarbonSystems',
   description:
     'A multi-agent trading desk: an orchestrator agent coordinates specialist subagents across US equities, crypto, precious metals, and global markets using live data.',
 }
