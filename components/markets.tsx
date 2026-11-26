@@ -91,6 +91,7 @@ export function Markets({ initial }: { initial: MarketSnapshot | null }) {
       <p className="sc-legal" role="status">
         Updated {formatTime(data.generatedAt)}, refreshes every 30s. Crypto is real time from Coinbase; indices and futures may be delayed up to 15 min.
         {failed ? ' Last refresh failed; showing the previous data.' : ''}
+        {data.sources.some((s) => !s.ok) ? ` Not current: ${data.sources.filter((s) => !s.ok).map((s) => s.source).join(', ')}.` : ''}
       </p>
     </>
   )

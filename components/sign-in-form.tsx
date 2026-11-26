@@ -19,7 +19,9 @@ export function SignInForm({ initialMode }: { initialMode: 'sign-in' | 'create' 
     setError(null)
     try {
       if (mode === 'code') {
-        const { error } = await authClient.twoFactor.verifyTotp({ code: get('code').replace(/\s/g, '') })
+        const code = get('code').replace(/\s/g, '')
+        // Six digits is an authenticator code; anything else is one of the saved backup codes.
+        const { error } = /^\d{6}$/.test(code) ? await authClient.twoFactor.verifyTotp({ code }) : await authClient.twoFactor.verifyBackupCode({ code })
         if (error) return setError('That code was not accepted.')
       } else if (mode === 'create') {
         const { error } = await authClient.signUp.email({ name: get('name'), email: get('email'), password: get('password') })
@@ -43,8 +45,8 @@ export function SignInForm({ initialMode }: { initialMode: 'sign-in' | 'create' 
       <h1 className="sc-h2">{mode === 'create' ? 'Create your account' : mode === 'code' ? 'Enter your code' : 'Sign in'}</h1>
       {mode === 'code' ? (
         <div className="sc-field">
-          <label htmlFor="code">6-digit code from your authenticator app</label>
-          <input className="sc-input" id="code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" required autoFocus />
+          <label htmlFor="code">6-digit code from your authenticator app, or a backup code</label>
+          <input className="sc-input" id="code" name="code" autoComplete="one-time-code" maxLength={40} required autoFocus />
         </div>
       ) : (
         <>

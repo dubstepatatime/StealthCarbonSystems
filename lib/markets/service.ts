@@ -26,7 +26,8 @@ const TTL = {
   coinbaseSparks: { ttlMs: 5 * 60_000, staleIfErrorMs: 60 * 60_000 },
   coinbaseFutures: { ttlMs: 30_000, staleIfErrorMs: 5 * 60_000 },
   yahooQuotes: { ttlMs: 45_000, staleIfErrorMs: 15 * 60_000 },
-  history: { ttlMs: 30 * 60_000, staleIfErrorMs: 24 * 60 * 60_000 },
+  // No stale-if-error here: signals built from old history would be stamped as fresh and traded on.
+  history: { ttlMs: 30 * 60_000, staleIfErrorMs: 0 },
 } as const
 
 const message = (err: unknown) => (err instanceof Error ? err.message : 'Source unavailable')
