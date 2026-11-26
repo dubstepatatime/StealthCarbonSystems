@@ -34,7 +34,7 @@ The agent keeps its own book, so it never spends more than the capital it was gi
 
 ## Deploy
 
-Set the variables in `.env.example`, run `pnpm db:migrate` against the database, deploy. `vercel.json` schedules the agent hourly.
+Set the variables in `.env.example`, run `pnpm db:migrate` against the database, deploy. `vercel.json` schedules the agent once a day (13:05 UTC), which every Vercel plan allows. Shorter cadences need a paid Vercel plan and a tighter schedule.
 
 Before taking real customers:
 
