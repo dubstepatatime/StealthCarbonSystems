@@ -23,7 +23,7 @@ import { seal, sha256 } from '@/lib/security/crypto'
 import { rateLimit } from '@/lib/security/rate-limit'
 import { ipHash } from '@/lib/security/request'
 import { getDeskReport } from '@/lib/trading/desk'
-import { decideOrder, ensureAgent, runAgentTick } from '@/lib/trading/engine'
+import { acquireLease, decideOrder, ensureAgent, releaseLease, runAgentTick } from '@/lib/trading/engine'
 import { defaultPolicy, parseRiskPolicy, PolicyError, RISK_PROFILES } from '@/lib/trading/limits'
 import { dec, toDecimalString } from '@/lib/trading/money'
 
@@ -43,7 +43,7 @@ async function context() {
 export async function setStatus(formData: FormData) {
   const { user, db, agent, ip } = await context()
   const to = z.enum(['active', 'paused']).parse(formData.get('to'))
-  await db.update(agents).set({ status: to, haltReason: null, nextRunAt: to === 'active' ? new Date() : agent.nextRunAt, leaseUntil: null }).where(and(eq(agents.id, agent.id), eq(agents.userId, user.id)))
+  await db.update(agents).set({ status: to, haltReason: null, nextRunAt: to === 'active' ? new Date() : agent.nextRunAt }).where(and(eq(agents.id, agent.id), eq(agents.userId, user.id)))
   await audit(db, { userId: user.id, actor: 'user', action: to === 'active' ? 'agent.resumed' : 'agent.paused', summary: to === 'active' ? 'Agent resumed.' : 'Agent paused. No new orders will be placed.', ipHash: ip })
   done(to === 'active' ? 'resumed' : 'paused')
 }
@@ -81,21 +81,35 @@ export async function saveSettings(formData: FormData) {
     if (!acknowledgedAt) done('need-ack')
   }
 
-  const delta = dec(policy!.capitalUsd).minus(agent.policy.capitalUsd)
-  if (!delta.eq(0)) {
-    // Capital is added to or taken from the agent's cash on every book; it cannot take out more cash than a book holds.
-    const books = await db.select().from(ledgers).where(eq(ledgers.agentId, agent.id))
-    if (books.some((b) => dec(b.cashUsd).plus(delta).lt(0))) done('capital-in-use')
-    for (const b of books) {
-      await db.update(ledgers).set({ cashUsd: toDecimalString(dec(b.cashUsd).plus(delta)), peakEquityUsd: toDecimalString(dec(b.peakEquityUsd).plus(delta)), dayStartEquityUsd: toDecimalString(dec(b.dayStartEquityUsd).plus(delta)) }).where(and(eq(ledgers.agentId, agent.id), eq(ledgers.ledger, b.ledger)))
-    }
+  // Hold the agent's execution lock so no run or approval moves the book while capital changes,
+  // and commit the books, the policy and the audit event together or not at all.
+  if (!(await acquireLease(db, agent.id))) done('busy')
+  let outcome = 'saved'
+  try {
+    await db.transaction(async (tx) => {
+      const [current] = await tx.select().from(agents).where(and(eq(agents.id, agent.id), eq(agents.userId, user.id)))
+      const delta = dec(policy!.capitalUsd).minus(current!.policy.capitalUsd)
+      if (!delta.eq(0)) {
+        // Capital is added to or taken from the agent's cash on every book; it cannot take out more cash than a book holds.
+        const books = await tx.select().from(ledgers).where(eq(ledgers.agentId, agent.id))
+        if (books.some((b) => dec(b.cashUsd).plus(delta).lt(0))) {
+          outcome = 'capital-in-use'
+          return
+        }
+        for (const b of books) {
+          await tx.update(ledgers).set({ cashUsd: toDecimalString(dec(b.cashUsd).plus(delta)), peakEquityUsd: toDecimalString(dec(b.peakEquityUsd).plus(delta)), dayStartEquityUsd: toDecimalString(dec(b.dayStartEquityUsd).plus(delta)) }).where(and(eq(ledgers.agentId, agent.id), eq(ledgers.ledger, b.ledger)))
+        }
+      }
+      await tx
+        .update(agents)
+        .set({ policy: policy!, riskProfile: input.profile as (typeof RISK_PROFILES)[number], mode: input.mode, cadenceMinutes: plan.minCadenceMinutes, riskAcknowledgedAt: acknowledgedAt, riskDisclosureVersion: acknowledgedAt ? RISK_DISCLOSURE_VERSION : null })
+        .where(and(eq(agents.id, agent.id), eq(agents.userId, user.id)))
+      await audit(tx, { userId: user.id, actor: 'user', action: 'agent.settings.changed', summary: `Settings saved: ${input.mode} mode, ${input.profile} profile, $${policy!.capitalUsd} capital.`, metadata: { mode: input.mode, profile: input.profile, capitalUsd: policy!.capitalUsd }, ipHash: ip })
+    })
+  } finally {
+    await releaseLease(db, agent.id)
   }
-  await db
-    .update(agents)
-    .set({ policy: policy!, riskProfile: input.profile as (typeof RISK_PROFILES)[number], mode: input.mode, cadenceMinutes: plan.minCadenceMinutes, riskAcknowledgedAt: acknowledgedAt, riskDisclosureVersion: acknowledgedAt ? RISK_DISCLOSURE_VERSION : null })
-    .where(and(eq(agents.id, agent.id), eq(agents.userId, user.id)))
-  await audit(db, { userId: user.id, actor: 'user', action: 'agent.settings.changed', summary: `Settings saved: ${input.mode} mode, ${input.profile} profile, $${policy!.capitalUsd} capital.`, metadata: { mode: input.mode, profile: input.profile, capitalUsd: policy!.capitalUsd }, ipHash: ip })
-  done('saved')
+  done(outcome)
 }
 
 export async function runNow() {
@@ -105,15 +119,21 @@ export async function runNow() {
   if (agent.status !== 'active') done('not-active')
   const desk = await getDeskReport(db).catch(() => null)
   if (!desk) done('no-data')
-  const result = await runAgentTick(db, agent.id, desk!)
+  if (!(await acquireLease(db, agent.id))) done('busy')
+  const result = await runAgentTick(db, agent.id, desk!) // releases the lease when it finishes
   done(result.outcome === 'error' ? 'run-error' : result.outcome === 'halted' ? 'halted' : 'ran')
 }
 
 export async function decide(formData: FormData) {
-  const { user, db } = await context()
+  const { user, db, agent } = await context()
   const input = z.object({ orderId: z.string().uuid(), approve: z.enum(['yes', 'no']) }).safeParse(Object.fromEntries(formData))
   if (!input.success) done('invalid')
-  await decideOrder(db, user.id, input.data!.orderId, input.data!.approve === 'yes')
+  if (!(await acquireLease(db, agent.id))) done('busy')
+  try {
+    await decideOrder(db, user.id, input.data!.orderId, input.data!.approve === 'yes')
+  } finally {
+    await releaseLease(db, agent.id)
+  }
   done('decided')
 }
 

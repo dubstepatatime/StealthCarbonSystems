@@ -50,7 +50,7 @@ async function askModel(lines: string[], regime: Regime): Promise<z.infer<typeof
     const { output } = await generateText({
       model: env.aiModel(),
       output: Output.object({ schema: aiSchema }),
-      abortSignal: AbortSignal.timeout(45_000),
+      abortSignal: AbortSignal.timeout(20_000),
       system:
         'You are a cross-market analyst. You are given only computed statistics. Return a market regime, a short plain narrative with no promises or advice, and for each crypto product a view from -1 (strongly negative) to 1 (strongly positive) with a one-sentence reason. Be conservative: when the evidence is mixed, stay near zero.',
       prompt: `Rules-based regime: ${regime}\n\n${lines.join('\n')}`,

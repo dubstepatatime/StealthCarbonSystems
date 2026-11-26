@@ -42,7 +42,13 @@ export async function GET(request: Request) {
       await revoke(tokens.accessToken)
       return back('link-taken')
     }
-    await saveConnection(db, user.id, tokens, coinbaseUserId)
+    try {
+      await saveConnection(db, user.id, tokens, coinbaseUserId)
+    } catch {
+      // The unique index on the Coinbase account is the real guard; the check above only gives a nicer message.
+      await revoke(tokens.accessToken)
+      return back('link-taken')
+    }
     await audit(db, { userId: user.id, actor: 'user', action: 'coinbase.linked', summary: 'Coinbase account linked with trade and read permissions. No withdrawal permission.', metadata: { scopes: tokens.scopes } })
     return back('linked')
   } catch {

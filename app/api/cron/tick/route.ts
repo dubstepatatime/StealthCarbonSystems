@@ -12,11 +12,11 @@ export const maxDuration = 60
 export async function GET(request: Request) {
   const sent = request.headers.get('authorization') ?? ''
   if (!safeEqual(sent, `Bearer ${env.cronSecret()}`)) return new Response(null, { status: 401 })
+  const deadline = Date.now() + 40_000 // from request entry; the platform stops us at 60s
   const db = await getDb()
   await expireProposals(db)
   if (await platformHalted(db)) return NextResponse.json({ halted: true })
   const desk = await getDeskReport(db)
-  const deadline = Date.now() + 45_000
   const outcomes: Record<string, number> = {}
   for (const id of await claimDueAgents(db, 25)) {
     if (Date.now() > deadline) break // unclaimed work is picked up next time; leases expire on their own

@@ -21,7 +21,7 @@ export const metadata = { title: 'Desk — Agentic Trading Desk', robots: { inde
 const MESSAGES: Record<string, [string, 'ok' | 'error']> = {
   saved: ['Settings saved.', 'ok'], paused: ['Agent paused. No new orders will be placed.', 'ok'], resumed: ['Agent resumed.', 'ok'], ran: ['Run finished. See activity below.', 'ok'],
   decided: ['Decision recorded.', 'ok'], linked: ['Coinbase linked.', 'ok'], unlinked: ['Coinbase unlinked and tokens deleted.', 'ok'], '2fa-on': ['Two-factor authentication is on.', 'ok'],
-  halted: ['A circuit breaker stopped the agent.', 'error'], invalid: ['That input was not valid.', 'error'], slow: ['Too many requests. Wait a minute and try again.', 'error'],
+  halted: ['A circuit breaker stopped the agent.', 'error'], busy: ['The agent is busy with a run. Try again in a moment.', 'error'], invalid: ['That input was not valid.', 'error'], slow: ['Too many requests. Wait a minute and try again.', 'error'],
   capital: ['That capital amount is outside what your plan allows.', 'error'], 'capital-in-use': ['You cannot remove capital that is invested. Reduce positions first.', 'error'],
   reauth: ['For this change, sign out and sign in again first.', 'error'], 'need-plan': ['Live trading needs a Pilot or Desk subscription.', 'error'], 'need-link': ['Live trading needs a Coinbase link with trade permission.', 'error'],
   'need-2fa': ['Turn on two-factor authentication before trading live.', 'error'], 'need-ack': ['Tick the risk acknowledgement to trade live.', 'error'], 'not-active': ['Resume the agent before running it.', 'error'],

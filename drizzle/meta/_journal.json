@@ -15,6 +15,13 @@
       "when": 1795691469077,
       "tag": "0001_audit_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795725240266,
+      "tag": "0002_coinbase_account_unique",
+      "breakpoints": true
     }
   ]
 }

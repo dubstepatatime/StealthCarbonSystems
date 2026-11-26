@@ -36,6 +36,18 @@ export async function platformHalted(db: Db): Promise<boolean> {
   return flag?.value === true
 }
 
+/**
+ * The per-agent execution lock. Scheduled runs, manual runs, approvals and
+ * capital changes all take it, so only one of them touches an agent's book at a time.
+ */
+export async function acquireLease(db: Db, agentId: string, now = new Date()): Promise<boolean> {
+  const [row] = await db.update(agents).set({ leaseUntil: new Date(now.getTime() + 5 * 60_000) }).where(and(eq(agents.id, agentId), or(isNull(agents.leaseUntil), lt(agents.leaseUntil, now)))).returning({ id: agents.id })
+  return Boolean(row)
+}
+export async function releaseLease(db: Db, agentId: string): Promise<void> {
+  await db.update(agents).set({ leaseUntil: null }).where(eq(agents.id, agentId))
+}
+
 /** The user's agent, created on first use: paused, paper mode, conservative limits. */
 export async function ensureAgent(db: Db, userId: string): Promise<Agent> {
   const [existing] = await db.select().from(agents).where(eq(agents.userId, userId))
@@ -89,6 +101,11 @@ async function prepare(db: Db, agent: Agent, ledger: Ledger, signalAsOf: Date, n
   const broker = ledger === 'paper' ? createPaperBroker() : await createCoinbaseBroker(db, agent.userId)
   if (!broker) return { error: 'Coinbase is not linked, or the link needs to be renewed.' }
 
+  if (ledger === 'live') {
+    // An order the exchange accepted but has not reported on could still fill. Until it is settled the book is incomplete, so nothing new is sent.
+    const [open] = await db.select({ id: orders.id }).from(orders).where(and(eq(orders.agentId, agent.id), eq(orders.ledger, 'live'), eq(orders.status, 'submitted'))).limit(1)
+    if (open) return { error: 'An earlier order is still unsettled. No new orders until it is resolved.' }
+  }
   const portfolio = await loadPortfolio(db, agent.id, ledger)
   const ids = [...new Set([...agent.policy.universe, ...Object.keys(portfolio.positions)])]
   const [products, quotes, feeRate, exchangeAvailable] = await Promise.all([broker.getProducts(ids), broker.getTopOfBook(ids), broker.getFeeRate(), broker.getAvailable?.(ids)])
@@ -116,7 +133,8 @@ async function prepare(db: Db, agent: Agent, ledger: Ledger, signalAsOf: Date, n
     status: agent.status,
     ledger,
     platformKillSwitch: await platformHalted(db),
-    live: { entitled: effectivePlan(sub).liveTrading, brokerConnected: link.linked && !link.needsReauth, brokerCanTrade: link.canTrade, twoFactorEnabled: Boolean(owner?.twoFactorEnabled), riskAcknowledged: Boolean(agent.riskAcknowledgedAt) },
+    // A downgrade shrinks what the plan allows; the agent's stored capital must still fit it.
+    live: { entitled: effectivePlan(sub).liveTrading && dec(agent.policy.capitalUsd).lte(effectivePlan(sub).maxCapitalUsd), brokerConnected: link.linked && !link.needsReauth, brokerCanTrade: link.canTrade, twoFactorEnabled: Boolean(owner?.twoFactorEnabled), riskAcknowledged: Boolean(agent.riskAcknowledgedAt) },
     policy: agent.policy,
     portfolio,
     equityUsd: valuation.equityUsd,
@@ -174,7 +192,9 @@ export async function runAgentTick(db: Db, agentId: string, desk: { id: string; 
   const started = new Date()
   const finish = async (result: TickResult): Promise<TickResult> => {
     await db.insert(agentRuns).values({ agentId, ledger, deskRunId: desk.id, outcome: result.outcome, summary: result.summary, error: result.error, startedAt: started, finishedAt: new Date() })
-    await db.update(agents).set({ lastRunAt: now, nextRunAt: new Date(now.getTime() + agent.cadenceMinutes * 60_000), leaseUntil: null }).where(eq(agents.id, agentId))
+    const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.userId, agent.userId))
+    const cadence = Math.max(agent.cadenceMinutes, effectivePlan(sub).minCadenceMinutes)
+    await db.update(agents).set({ lastRunAt: now, nextRunAt: new Date(now.getTime() + cadence * 60_000), leaseUntil: null }).where(eq(agents.id, agentId))
     return result
   }
   if (agent.status !== 'active') return finish({ outcome: 'skipped', summary: { note: `Agent is ${agent.status}.` } })
@@ -244,6 +264,12 @@ export async function runAgentTick(db: Db, agentId: string, desk: { id: string; 
         await audit(db, { userId: agent.userId, actor: 'agent', action: 'agent.order.proposed', targetType: 'order', targetId: row!.id, summary: `Proposed: ${intent.side} $${usd(dec(decision.ticket!.notionalUsd))} of ${intent.productId}. Waiting for your approval.` })
         continue
       }
+      // The user may have paused, or a breaker tripped, since this run loaded the agent.
+      const [live] = await db.select({ status: agents.status }).from(agents).where(eq(agents.id, agentId))
+      if (live?.status !== 'active') {
+        await db.update(orders).set({ status: 'rejected', error: 'Agent was paused during the run.', completedAt: new Date() }).where(eq(orders.id, row!.id))
+        break
+      }
       const done = await execute(db, agent, ledger, row!.id, clientOrderId, decision, broker, portfolio)
       portfolio = done.portfolio
       if (done.status === 'filled' || done.status === 'partially_filled') {
@@ -283,6 +309,14 @@ export async function decideOrder(db: Db, userId: string, orderId: string, appro
   if (!agent) return fail('failed', 'Agent not found.')
   const prepared = await prepare(db, agent, order.ledger, order.createdAt, now)
   if ('error' in prepared) return fail('failed', prepared.error)
+  // Circuit breakers apply to approvals too: losses since the proposal may have crossed a limit.
+  const [book] = await db.select().from(ledgers).where(and(eq(ledgers.agentId, agent.id), eq(ledgers.ledger, order.ledger)))
+  const halt = book ? checkHalts({ equityUsd: prepared.ctx.equityUsd, dayStartEquityUsd: dec(book.dayStartEquityUsd), peakEquityUsd: maxBig(dec(book.peakEquityUsd), prepared.ctx.equityUsd), policy: agent.policy }) : null
+  if (halt && order.side === 'BUY') {
+    await db.update(agents).set({ status: 'halted', haltReason: halt }).where(eq(agents.id, agent.id))
+    await audit(db, { userId, actor: 'agent', action: 'agent.halted', targetType: 'agent', targetId: agent.id, summary: HALT_MESSAGES[halt] })
+    return fail('rejected', HALT_MESSAGES[halt])
+  }
   const intent: TradeIntent = { productId: order.productId, side: order.side, notionalUsd: dec(order.notionalUsd), reason: order.reason, targetWeight: 0, currentWeight: 0 }
   const decision = evaluateIntent(intent, prepared.ctx)
   if (!decision.approved) {

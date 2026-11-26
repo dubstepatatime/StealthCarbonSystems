@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "coinbase_connections_account_uq" ON "coinbase_connections" USING btree ("coinbase_user_id");

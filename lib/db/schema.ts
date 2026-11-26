@@ -323,7 +323,7 @@ export const coinbaseConnections = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [uniqueIndex('coinbase_connections_user_uq').on(t.userId), check('coinbase_connections_status_ck', sql`${t.status} in ('active','needs_reauth')`)],
+  (t) => [uniqueIndex('coinbase_connections_user_uq').on(t.userId), uniqueIndex('coinbase_connections_account_uq').on(t.coinbaseUserId), check('coinbase_connections_status_ck', sql`${t.status} in ('active','needs_reauth')`)],
 )
 
 /** One row per in-flight OAuth authorization. Single use, short lived, bound to the user who started it. */

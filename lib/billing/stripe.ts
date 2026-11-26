@@ -32,6 +32,8 @@ export async function createCheckout(db: Db, user: { id: string; email: string }
   const price = env.stripe()?.prices[plan]
   if (!s || !price) throw new Error('Billing is not configured')
   const [row] = await db.select().from(subscriptions).where(eq(subscriptions.userId, user.id))
+  // Someone who already has a subscription changes it in the billing portal; a second checkout would bill them twice.
+  if (row?.stripeSubscriptionId && !['canceled', 'incomplete_expired', 'none'].includes(row.status)) return createPortal(db, user.id)
   let customerId = row?.stripeCustomerId ?? null
   if (!customerId) {
     const customer = await s.customers.create({ email: user.email, metadata: { userId: user.id } }, { idempotencyKey: `customer-${user.id}` })
@@ -102,7 +104,13 @@ export async function handleWebhook(db: Db, rawBody: string, signature: string |
   if (HANDLED.has(event.type)) {
     const customer = (event.data.object as { customer?: string | { id: string } | null }).customer
     const customerId = typeof customer === 'string' ? customer : customer?.id
-    if (customerId) await syncCustomer(db, customerId)
+    try {
+      if (customerId) await syncCustomer(db, customerId)
+    } catch {
+      // Forget the event so Stripe's retry processes it; answering 200 here would lose the change.
+      await db.delete(billingEvents).where(eq(billingEvents.id, event.id))
+      return 500
+    }
   }
   await db.update(billingEvents).set({ processedAt: new Date() }).where(eq(billingEvents.id, event.id))
   return 200

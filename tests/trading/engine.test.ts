@@ -24,7 +24,7 @@ const paper: Broker = {
 vi.mock('@/lib/trading/paper-broker', () => ({ createPaperBroker: () => paper }))
 vi.mock('@/lib/coinbase/api', () => ({ createCoinbaseBroker: async () => null }))
 
-const { decideOrder, ensureAgent, runAgentTick } = await import('@/lib/trading/engine')
+const { acquireLease, decideOrder, ensureAgent, releaseLease, runAgentTick } = await import('@/lib/trading/engine')
 
 const desk = (conviction: number): { id: string; report: DeskReport } => ({
   id: 'desk-1',
@@ -74,6 +74,16 @@ describe('agent engine', () => {
     expect(new Set(ids).size).toBe(ids.length)
     const trail = await db.select().from(auditEvents).where(eq(auditEvents.userId, userId))
     expect(trail.filter((e) => e.action === 'agent.order.filled')).toHaveLength(2)
+  })
+
+  it('lets only one worker hold an agent at a time', async () => {
+    const agent = await ensureAgent(db, await seedUser(db, 'u_lease'))
+    expect(await acquireLease(db, agent.id)).toBe(true)
+    expect(await acquireLease(db, agent.id)).toBe(false)
+    await releaseLease(db, agent.id)
+    expect(await acquireLease(db, agent.id)).toBe(true)
+    // a lease left behind by a crashed worker expires on its own
+    expect(await acquireLease(db, agent.id, new Date(Date.now() + 6 * 60_000))).toBe(true)
   })
 
   it('halts on the daily loss limit and stays halted', async () => {

@@ -88,12 +88,14 @@ export async function fetchBalances(token: string): Promise<Balances> {
   const base: Record<string, Big | undefined> = {}
   let usd = ZERO
   let portfolioId: string | null = null
+  // Pin one portfolio (the one holding the USD the agent spends) and read every balance from it,
+  // so a sell is never approved against coins that sit in a different portfolio than the order goes to.
+  const usdAccount = spot.find((a) => a.currency === 'USD' && a.retail_portfolio_id)
+  portfolioId = usdAccount?.retail_portfolio_id ?? null
+  if (usdAccount) usd = tryDec(usdAccount.available_balance.value) ?? ZERO
   for (const a of spot) {
-    const value = tryDec(a.available_balance.value) ?? ZERO
-    if (a.currency === 'USD') {
-      usd = value
-      portfolioId = a.retail_portfolio_id ?? portfolioId
-    } else base[`${a.currency}-USD`] = value
+    if (a.currency === 'USD' || !portfolioId || a.retail_portfolio_id !== portfolioId) continue
+    base[`${a.currency}-USD`] = tryDec(a.available_balance.value) ?? ZERO
   }
   return { usd, base, portfolioId }
 }
