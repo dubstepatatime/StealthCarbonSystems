@@ -137,6 +137,8 @@ export async function unlinkCoinbase() {
 export async function subscribe(formData: FormData) {
   const { user, db } = await context()
   const plan = z.enum(['pilot', 'desk']).parse(formData.get('plan'))
+  // Paid plans are not sold while live trading is unavailable.
+  if (!env.coinbase()) done('billing-off')
   const url = await createCheckout(db, user, plan).catch(() => null)
   if (!url) done('billing-off')
   redirect(url!)

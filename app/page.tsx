@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Markets } from '@/components/markets'
 import { PLANS } from '@/lib/billing/plans'
+import { env } from '@/lib/env'
 import { getMarketSnapshot } from '@/lib/markets/service'
 
 const SAFEGUARDS = [
@@ -12,6 +13,9 @@ const SAFEGUARDS = [
 
 export default async function Page() {
   const snapshot = await getMarketSnapshot().catch(() => null)
+  // Paid plans promise live trading, which needs the Coinbase link. Until that is configured, show only what works.
+  const liveAvailable = Boolean(env.coinbase())
+  const plans = Object.values(PLANS).filter((plan) => liveAvailable || !plan.liveTrading)
   return (
     <>
       <div className="sc-hero">
@@ -52,9 +56,9 @@ export default async function Page() {
       <section className="sc-section">
         <div className="sc-wrap">
           <h2 className="sc-h2">Plans</h2>
-          <p className="sc-intro">A flat monthly fee. No share of profits, no fee on trades. Cancel online at any time.</p>
+          <p className="sc-intro">{liveAvailable ? 'A flat monthly fee. No share of profits, no fee on trades. Cancel online at any time.' : 'Paper trading is free. Live trading is not open yet.'}</p>
           <div className="sc-grid sc-grid--3">
-            {Object.values(PLANS).map((plan) => (
+            {plans.map((plan) => (
               <div key={plan.id} className="sc-tile">
                 <div>
                   <h3 className="sc-tile__title">{plan.name}</h3>

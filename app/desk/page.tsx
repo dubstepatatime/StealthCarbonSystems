@@ -202,9 +202,9 @@ export default async function DeskPage({ searchParams }: { searchParams: Promise
             <div className="sc-tile__head"><h2 className="sc-tile__title">Plan</h2><Tag color={plan.id === 'free' ? 'cool-gray' : 'green'}>{plan.name}</Tag></div>
             <p className="sc-body">{plan.tagline}{sub?.cancelAtPeriodEnd ? ' Your plan ends at the close of this billing period.' : ''}</p>
             <div className="sc-inline">
-              {plan.id === 'free' ? (['pilot', 'desk'] as const).map((id) => (
+              {plan.id !== 'free' ? <form action={manageBilling}><button className="cds--btn cds--btn--tertiary cds--btn--sm">Manage or cancel</button></form> : !env.coinbase() ? <p className="sc-legal">Paid plans open when live trading does.</p> : (['pilot', 'desk'] as const).map((id) => (
                 <form key={id} action={subscribe}><input type="hidden" name="plan" value={id} /><button className="cds--btn cds--btn--tertiary cds--btn--sm">{PLANS[id].name} · ${PLANS[id].priceUsd}/mo</button></form>
-              )) : <form action={manageBilling}><button className="cds--btn cds--btn--tertiary cds--btn--sm">Manage or cancel</button></form>}
+              ))}
             </div>
 
             <div className="sc-tile__head"><h2 className="sc-tile__title">Two-factor</h2><Tag color={user.twoFactorEnabled ? 'green' : 'cool-gray'}>{user.twoFactorEnabled ? 'On' : 'Off'}</Tag></div>
