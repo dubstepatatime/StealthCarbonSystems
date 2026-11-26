@@ -1,0 +1,32 @@
+# Supply-chain guards (pnpm 10).
+# - Never resolve a version published less than 7 days ago: most compromised
+#   releases are caught and unpublished well inside that window.
+# - Install scripts stay blocked by default; nothing here needs one. The entries
+#   below are listed only so installs do not warn about them. (The Carbon and
+#   IBM Plex packages use their script for IBM telemetry, which we do not run.)
+minimumReleaseAge: 10080
+ignoredBuiltDependencies:
+  - '@carbon/colors'
+  - '@carbon/feature-flags'
+  - '@carbon/grid'
+  - '@carbon/icon-helpers'
+  - '@carbon/icons-react'
+  - '@carbon/layout'
+  - '@carbon/motion'
+  - '@carbon/react'
+  - '@carbon/styles'
+  - '@carbon/themes'
+  - '@carbon/type'
+  - '@carbon/utilities'
+  - '@ibm/plex'
+  - '@ibm/plex-mono'
+  - '@ibm/plex-sans'
+  - '@ibm/plex-sans-arabic'
+  - '@ibm/plex-sans-devanagari'
+  - '@ibm/plex-sans-hebrew'
+  - '@ibm/plex-sans-thai'
+  - '@ibm/plex-sans-thai-looped'
+  - '@ibm/plex-serif'
+  - '@parcel/watcher'
+  - esbuild
+  - sharp

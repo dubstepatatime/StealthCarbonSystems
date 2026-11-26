@@ -1,49 +1,57 @@
+import { and, eq, ne } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
+import { currentUser } from '@/lib/auth/session'
+import { fetchCoinbaseUserId } from '@/lib/coinbase/api'
+import { saveConnection } from '@/lib/coinbase/connection'
+import { exchangeCode, revoke, unexpectedScopes } from '@/lib/coinbase/oauth'
+import { getDb } from '@/lib/db/client'
+import { coinbaseConnections, oauthStates } from '@/lib/db/schema'
+import { env } from '@/lib/env'
+import { audit } from '@/lib/security/audit'
+import { open, sha256 } from '@/lib/security/crypto'
 
 export const dynamic = 'force-dynamic'
 
+/** Where Coinbase sends the user back. Every failure lands on the desk with a fixed code; nothing from the query is echoed. */
 export async function GET(request: Request) {
-  const url = new URL(request.url)
-  const origin = url.origin
-  const code = url.searchParams.get('code')
+  const back = (code: string) => NextResponse.redirect(`${env.appUrl()}/desk?msg=${code}`)
+  const user = await currentUser()
+  if (!user) return NextResponse.redirect(`${env.appUrl()}/sign-in`)
+  const params = new URL(request.url).searchParams
+  const state = params.get('state') ?? ''
+  const code = params.get('code') ?? ''
+  if (state.length < 20 || state.length > 200 || code.length < 1 || code.length > 2000) return back('link-failed')
 
-  const clientId = process.env.COINBASE_CLIENT_ID
-  const clientSecret = process.env.COINBASE_CLIENT_SECRET
-
-  if (!code || !clientId || !clientSecret) {
-    return NextResponse.redirect(`${origin}/?coinbase=error`)
-  }
+  const db = await getDb()
+  // Single use: the row is deleted as it is read, and it must belong to the signed-in user.
+  const [pending] = await db.delete(oauthStates).where(and(eq(oauthStates.stateHash, sha256(state)), eq(oauthStates.userId, user.id))).returning()
+  if (!pending || pending.expiresAt < new Date()) return back('link-failed')
 
   try {
-    const tokenRes = await fetch('https://login.coinbase.com/oauth2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'authorization_code',
-        code,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: `${origin}/api/coinbase/callback`,
-      }),
-    })
-
-    if (!tokenRes.ok) {
-      return NextResponse.redirect(`${origin}/?coinbase=error`)
+    const tokens = await exchangeCode(code, open(pending.codeVerifierEnc, `oauth:${user.id}`))
+    const extra = unexpectedScopes(tokens.scopes)
+    if (extra.length || !tokens.refreshToken) {
+      // More permission than we asked for (or no way to refresh): refuse the link.
+      await revoke(tokens.accessToken)
+      await audit(db, { userId: user.id, actor: 'system', action: 'coinbase.link.refused', summary: 'Coinbase link refused: unexpected permissions.', metadata: { extra } })
+      return back('link-refused')
     }
-
-    const token = await tokenRes.json()
-    const store = await cookies()
-    store.set('coinbase_access_token', token.access_token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: typeof token.expires_in === 'number' ? token.expires_in : 3600,
-    })
-
-    return NextResponse.redirect(`${origin}/?coinbase=connected`)
+    const coinbaseUserId = await fetchCoinbaseUserId(tokens.accessToken)
+    const [taken] = await db.select({ id: coinbaseConnections.id }).from(coinbaseConnections).where(and(eq(coinbaseConnections.coinbaseUserId, coinbaseUserId), ne(coinbaseConnections.userId, user.id)))
+    if (taken) {
+      await revoke(tokens.accessToken)
+      return back('link-taken')
+    }
+    try {
+      await saveConnection(db, user.id, tokens, coinbaseUserId)
+    } catch {
+      // The unique index on the Coinbase account is the real guard; the check above only gives a nicer message.
+      await revoke(tokens.accessToken)
+      return back('link-taken')
+    }
+    await audit(db, { userId: user.id, actor: 'user', action: 'coinbase.linked', summary: 'Coinbase account linked with trade and read permissions. No withdrawal permission.', metadata: { scopes: tokens.scopes } })
+    return back('linked')
   } catch {
-    return NextResponse.redirect(`${origin}/?coinbase=error`)
+    return back('link-failed')
   }
 }

@@ -1,34 +1,43 @@
-# agentic-trading-platform POC using IBM's Secure Carbonite Backbone. It takes one orchestrator agent managing subagents to pull live Global and US Market Data, Gold and Silver, and Crypto Currency prices. 
+# Agentic Trading Desk
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [v0](https://v0.app).
+Live cross-market data (US, global, crypto, gold and silver) and an AI trading agent that rebalances a user's Coinbase account inside limits they set. Built on IBM Carbon, dark theme only.
 
-## Built with v0 aka Vercel
-## I hate day trading manually therefore I automated it!
+Three pages: `/` (markets, safeguards, plans), `/sign-in`, `/desk`. See [SECURITY.md](SECURITY.md) for the threat-by-threat design.
 
-This repository is linked to a [v0](https://v0.app) project. You can continue developing by visiting the link below -- start new chats to make changes, and v0 will push commits directly to this repo. Every merge to `main` will automatically deploy.
-
-[Continue working on v0 →](https://v0.app/chat/projects/prj_Ygy85q0hb5BKl4aQE3ch8FuApGA8)
-
-## Getting Started
-
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+```
+
+```bash
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+No configuration is needed in development: it uses an embedded Postgres (`.data/`), paper trading, and rules-only signals.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm check
+```
 
-## Learn More
+runs the type check and the test suite.
 
-To learn more, take a look at the following resources:
+## How a trade happens
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [v0 Documentation](https://v0.app/docs) - learn about v0 and how to use it.
+1. **Market data** — Coinbase (crypto, PAX Gold; real time) and Yahoo Finance (indices, metals futures; may be delayed). If Yahoo fails, gold and silver fall back to Coinbase Derivatives futures. `lib/markets`
+2. **Desk** — a rules-based trend and momentum score per asset. If `AI_GATEWAY_API_KEY` is set, a model may tilt each score by a bounded amount and writes the narrative. `lib/trading/desk.ts`
+3. **Allocator** — long-only target weights; cash by default. `lib/trading/allocator.ts`
+4. **Risk engine** — approves, shrinks or rejects each order. `lib/trading/risk.ts`
+5. **Broker** — paper (simulated fills on real quotes) or Coinbase (limit immediate-or-cancel). `lib/trading/engine.ts`
+
+The agent keeps its own book, so it never spends more than the capital it was given and never sells an asset it did not buy.
+
+## Deploy
+
+Set the variables in `.env.example`, run `pnpm db:migrate` against the database, deploy. `vercel.json` schedules the agent once a day (13:05 UTC), which every Vercel plan allows. Shorter cadences need a paid Vercel plan and a tighter schedule.
+
+Before taking real customers:
+
+- **Coinbase approval.** Coinbase currently limits OAuth client creation to approved partners. Live trading for other people's accounts cannot start until Coinbase approves the app.
+- **Licensed market data.** The Yahoo endpoint is unofficial and has no terms for commercial use. Replace it with a licensed feed.
+- **Legal review.** Running trades in customers' accounts for a fee raises adviser, commodity and state licensing questions. Take them to a lawyer before launch.
