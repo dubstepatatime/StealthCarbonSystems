@@ -1,29 +1,52 @@
 {
-  "name": "carbon-starter",
+  "name": "stealth-carbon-systems",
   "version": "0.1.0",
+  "description": "Agentic Trading Desk: live cross-market data and an AI trading agent that works inside hard risk limits.",
   "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "ds:build": "node scripts/build-design-system.mjs",
+    "check": "pnpm typecheck && pnpm test"
   },
   "dependencies": {
-    "@ai-sdk/react": "^4.0.117",
     "@carbon/icons-react": "^11.82.0",
     "@carbon/react": "^1.109.0",
+    "@electric-sql/pglite": "^0.5.16",
     "ai": "^7.0.114",
+    "better-auth": "^1.7.26",
+    "big.js": "^7.0.1",
+    "drizzle-orm": "^0.45.4",
     "next": "^16.2.9",
+    "pg": "^8.23.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-is": "^19.2.7",
-    "swr": "^2.5.1",
+    "server-only": "^0.0.1",
+    "stripe": "^23.2.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@types/big.js": "^7.0.0",
     "@types/node": "^25.9.3",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
     "sass": "^1.100.0",
-    "typescript": "^6.0.3"
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3",
+    "vitest": "^5.1.1"
   }
 }
